@@ -3,50 +3,70 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 )
 
-// ProxyServer for Ethereal getBlockByNumber calls
-type ProxyServer struct{ gateway string }
+const applicationJSON = "application/json"
 
-// TODO: Return HTTP error in case of errors
-func (ps ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	logger.Println("Serving a request for", r.URL.Path)
-
-	block, txs, err := parseURL(r.URL)
-	if err != nil {
-		logger.Println(err)
-		return
-	}
-
-	// TODO: implement LRU caching
-
-	gatewayCallCounter++
-	// https://eth.wiki/json-rpc/API#eth_getblockbynumber
-	// curl https://cloudflare-eth.com --data '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["0xb34f16", true],"id":1}'
-	rpcString := fmt.Sprintf(`{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["%s", true],"id":%d}`, block, gatewayCallCounter)
-	logger.Println("Fetching block by number:", rpcString)
-
-	// TODO: Configure timeouts
-	resp, err := http.Post(ps.gateway, "application/json", strings.NewReader(rpcString))
-	if err != nil {
-		logger.Println(err)
-		return
-	}
-	defer resp.Body.Close()
-	logger.Println("Received block", block)
-
-	// TODO: parse block X in order to only return transaction Y by index or hash
-	logger.Println("Returning the whole block instead of transaction", txs)
-	written, err := io.Copy(w, resp.Body)
-	logger.Println("Sent", written, "bytes to user")
+type proxyServer struct {
+	gateway      string
+	cache        *blockCache
+	fetchCounter int
 }
 
-// expect URLs like /block/X/txs/Y
+func newProxyServer(gateway string, cache *blockCache) proxyServer {
+	return proxyServer{
+		gateway:      gateway,
+		cache:        cache,
+		fetchCounter: 0,
+	}
+}
+
+func (ps *proxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	logger.Println()
+	logger.Println("Serving a request for", r.URL.Path)
+
+	blockNr, _, err := parseURL(r.URL)
+	if err != nil {
+		logger.Println(err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	logger.Println("Looking up block", blockNr, "in cache")
+	block, err := ps.cache.getBlockByNumber(blockNr)
+	if err != nil {
+		logger.Println(err)
+		block, err = ps.fetchBlock(blockNr)
+		if err != nil {
+			logger.Println(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if shallCache(blockNr) {
+			ps.cache.putOrUpdate(blockNr, block)
+		} else {
+			logger.Println("Block", blockNr, "will not be cached")
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", applicationJSON)
+	written, err := w.Write([]byte(block))
+	if err != nil {
+		logger.Println("Error replying to client")
+		return
+	}
+	logger.Println("Sent", written, "bytes to client")
+
+	// TODO: parse block X in order to return only transaction Y by its index or its hash
+}
+
+// Expect URLs like /block/X/txs/Y
 func parseURL(url *url.URL) (block string, txs string, err error) {
 
 	path := strings.Split(url.Path, "/")
@@ -60,8 +80,40 @@ func parseURL(url *url.URL) (block string, txs string, err error) {
 		if err != nil || blockNumber < 0 {
 			return "", "", errors.New("Invalid block number: " + path[2])
 		}
-		blockPattern = fmt.Sprintf("%#x", blockNumber)
 	}
 
 	return blockPattern, path[4], nil
+}
+
+// See documentation at https://eth.wiki/json-rpc/API#eth_getblockbynumber
+// Example call: curl https://cloudflare-eth.com --data '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["0xb34f16", true],"id":1}'
+func (ps *proxyServer) fetchBlock(blockNr string) (string, error) {
+	ps.fetchCounter++
+	blockIDString := "latest"
+	if blockNr != "latest" {
+		blockInt, _ := strconv.Atoi(blockNr)
+		blockIDString = fmt.Sprintf("%#x", blockInt)
+	}
+	rpcString := fmt.Sprintf(`{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["%s", true],"id":%d}`, blockIDString, ps.fetchCounter)
+	logger.Println("Performing JSON-RPC:", rpcString)
+
+	// TODO: Configure timeouts
+	resp, err := http.Post(ps.gateway, applicationJSON, strings.NewReader(rpcString))
+	if err != nil {
+		resp.Body.Close()
+		return "", err
+	}
+
+	fetchedBlock, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	err = resp.Body.Close()
+	if err != nil {
+		return "", err
+	}
+	logger.Println("Fetched", len(fetchedBlock), "bytes of", blockNr, "block")
+
+	return string(fetchedBlock), err
 }
