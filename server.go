@@ -12,45 +12,47 @@ import (
 
 const applicationJSON = "application/json"
 
-type proxyServer struct {
+// ProxyServer fetches and caches Ethereum blocks
+type ProxyServer struct {
 	gateway      string
-	cache        *blockCache
+	cache        *BlockCache
 	fetchCounter int
 }
 
-func newProxyServer(gateway string, cache *blockCache) proxyServer {
-	return proxyServer{
-		gateway:      gateway,
-		cache:        cache,
+// NewProxyServer creates and initializes a new proxy server using provided gateway URL and block cache
+func NewProxyServer(gatewayURL string, blockCache *BlockCache) *ProxyServer {
+	return &ProxyServer{
+		gateway:      gatewayURL,
+		cache:        blockCache,
 		fetchCounter: 0,
 	}
 }
 
-func (ps *proxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (ps *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	logger.Println()
 	logger.Println("Serving a request for", r.URL.Path)
 
-	blockNr, _, err := parseURL(r.URL)
+	blockID, _, err := parseURL(r.URL)
 	if err != nil {
 		logger.Println(err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	logger.Println("Looking up block", blockNr, "in cache")
-	block, err := ps.cache.getBlockByNumber(blockNr)
+	logger.Println("Looking up block", blockID, "in cache")
+	block, err := ps.cache.Get(blockID)
 	if err != nil {
 		logger.Println(err)
-		block, err = ps.fetchBlock(blockNr)
+		block, err = ps.fetchBlock(blockID)
 		if err != nil {
 			logger.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		if shallCache(blockNr) {
-			ps.cache.putOrUpdate(blockNr, block)
+		if ShallCache(blockID) {
+			ps.cache.PutOrUpdate(blockID, block)
 		} else {
-			logger.Println("Block", blockNr, "will not be cached")
+			logger.Println("Block", blockID, "will not be cached")
 		}
 	}
 
@@ -67,7 +69,7 @@ func (ps *proxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // Expect URLs like /block/X/txs/Y
-func parseURL(url *url.URL) (block string, txs string, err error) {
+func parseURL(url *url.URL) (block BlockID, txs string, err error) {
 
 	path := strings.Split(url.Path, "/")
 	if len(path) != 5 || path[1] != "block" || path[2] == "" || path[3] != "txs" || path[4] == "" {
@@ -82,16 +84,16 @@ func parseURL(url *url.URL) (block string, txs string, err error) {
 		}
 	}
 
-	return blockPattern, path[4], nil
+	return BlockID(blockPattern), path[4], nil
 }
 
 // See documentation at https://eth.wiki/json-rpc/API#eth_getblockbynumber
 // Example call: curl https://cloudflare-eth.com --data '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["0xb34f16", true],"id":1}'
-func (ps *proxyServer) fetchBlock(blockNr string) (string, error) {
+func (ps *ProxyServer) fetchBlock(blockID BlockID) (string, error) {
 	ps.fetchCounter++
 	blockIDString := "latest"
-	if blockNr != "latest" {
-		blockInt, _ := strconv.Atoi(blockNr)
+	if blockID != "latest" {
+		blockInt, _ := strconv.Atoi(string(blockID))
 		blockIDString = fmt.Sprintf("%#x", blockInt)
 	}
 	rpcString := fmt.Sprintf(`{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["%s", true],"id":%d}`, blockIDString, ps.fetchCounter)
@@ -113,7 +115,7 @@ func (ps *proxyServer) fetchBlock(blockNr string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	logger.Println("Fetched", len(fetchedBlock), "bytes of", blockNr, "block")
+	logger.Println("Fetched", len(fetchedBlock), "bytes of", blockID, "block")
 
 	return string(fetchedBlock), err
 }

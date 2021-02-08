@@ -6,68 +6,76 @@ import (
 	"strconv"
 )
 
-type blockCache struct {
-	blockEntries blockByNumberMap
-	callCounter  int
-	capacity     int
+// BlockCache stores blocks in a map ordered by BlockID
+type BlockCache struct {
+	entries   blockByNumberMap
+	callCount uint32
+	capacity  uint32
 }
 
-type blockByNumberMap map[string]*struct {
-	value    string
-	lastUsed int
+type blockByNumberMap map[BlockID]*struct {
+	block    string
+	lastUsed uint32
 }
 
-func newBlockCache(capacity int) blockCache {
-	return blockCache{
-		blockEntries: make(blockByNumberMap, capacity),
-		callCounter:  0,
-		capacity:     capacity,
+// NewBlockCache creates and initializes a new cache with a given capacity
+func NewBlockCache(capacity uint32) *BlockCache {
+	// TODO: Fetch latest block number every 15s to know what can be cached
+	// https://eth.wiki/json-rpc/API#eth_blocknumber
+	// curl https://cloudflare-eth.com --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
+	return &BlockCache{
+		entries:   make(blockByNumberMap, capacity),
+		callCount: 0,
+		capacity:  capacity,
 	}
 }
 
-func (cache *blockCache) getBlockByNumber(blockNr string) (string, error) {
-	if blockEntry, ok := cache.blockEntries[blockNr]; ok {
-		cache.callCounter++
-		blockEntry.lastUsed = cache.callCounter
-		return blockEntry.value, nil
+// Get returns cached block or an error otherwise
+func (cache *BlockCache) Get(blockID BlockID) (string, error) {
+	if entry, ok := cache.entries[blockID]; ok {
+		cache.callCount++
+		entry.lastUsed = cache.callCount
+		return entry.block, nil
 	}
-	return "", errors.New("Block " + blockNr + " is not cached")
+	return "", errors.New("Block " + string(blockID) + " is not cached")
 }
 
-func (cache *blockCache) putOrUpdate(blockNr string, block string) {
-	cache.callCounter++
-	if blockEntry, ok := cache.blockEntries[blockNr]; ok {
-		logger.Println("Block", blockNr, "is already cached")
-		blockEntry.lastUsed = cache.callCounter
+// PutOrUpdate caches a block or just updates its lastUsed property
+func (cache *BlockCache) PutOrUpdate(blockID BlockID, block string) {
+	cache.callCount++
+	if blockEntry, ok := cache.entries[blockID]; ok {
+		logger.Println("Block", blockID, "is already cached")
+		blockEntry.lastUsed = cache.callCount
 	} else {
 		cache.expungeOldEntries()
-		logger.Println("Block", blockNr, "will be cached")
-		cache.blockEntries[blockNr] = &struct {
-			value    string
-			lastUsed int
+		logger.Println("Block", blockID, "will be cached")
+		cache.entries[blockID] = &struct {
+			block    string
+			lastUsed uint32
 		}{
-			value:    block,
-			lastUsed: cache.callCounter,
+			block:    block,
+			lastUsed: cache.callCount,
 		}
 	}
 }
 
-func (cache *blockCache) expungeOldEntries() {
-	for len(cache.blockEntries) >= cache.capacity {
-		var blockNr string = ""
-		var lastUsed = math.MaxInt32
-		for k, v := range cache.blockEntries {
+func (cache *BlockCache) expungeOldEntries() {
+	for uint32(len(cache.entries)) >= cache.capacity {
+		var blockID BlockID = ""
+		var lastUsed uint32 = math.MaxUint32
+		for k, v := range cache.entries {
 			if v.lastUsed < lastUsed {
-				blockNr = k
+				blockID = k
 				lastUsed = v.lastUsed
 			}
 		}
-		logger.Println("Removing", blockNr, "from cache")
-		delete(cache.blockEntries, blockNr)
+		logger.Println("Removing", blockID, "from cache")
+		delete(cache.entries, blockID)
 	}
 }
 
-func shallCache(blockNr string) bool {
-	_, err := strconv.Atoi(blockNr)
+// ShallCache tells whether a block with a given ID shall be cached or not
+func ShallCache(blockID BlockID) bool {
+	_, err := strconv.Atoi(string(blockID))
 	return err == nil
 }
