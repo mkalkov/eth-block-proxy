@@ -4,10 +4,12 @@ import (
 	"errors"
 	"math"
 	"strconv"
+	"sync"
 )
 
 // BlockCache stores blocks in a map ordered by BlockID
 type BlockCache struct {
+	mu        sync.Mutex
 	entries   blockByNumberMap
 	callCount uint32
 	capacity  uint32
@@ -32,6 +34,8 @@ func NewBlockCache(capacity uint32) *BlockCache {
 
 // Get returns cached block or an error otherwise
 func (cache *BlockCache) Get(blockID BlockID) (string, error) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
 	if entry, ok := cache.entries[blockID]; ok {
 		cache.callCount++
 		entry.lastUsed = cache.callCount
@@ -42,6 +46,8 @@ func (cache *BlockCache) Get(blockID BlockID) (string, error) {
 
 // PutOrUpdate caches a block or just updates its lastUsed property
 func (cache *BlockCache) PutOrUpdate(blockID BlockID, block string) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
 	cache.callCount++
 	if blockEntry, ok := cache.entries[blockID]; ok {
 		logger.Println("Block", blockID, "is already cached")
