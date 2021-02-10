@@ -17,6 +17,8 @@ type BlockID string
 var logger = log.New(os.Stderr, "", log.Ldate|log.Ltime|log.Lmicroseconds)
 
 func main() {
+	// TODO: Received configuration through flags
+
 	logger.Println("Ready to proxy calls to", defaultEthereumGateway)
 
 	cache := NewBlockCache(defaultCacheCapacity)

@@ -16,7 +16,7 @@ const applicationJSON = "application/json"
 type ProxyServer struct {
 	gateway      string
 	cache        *BlockCache
-	fetchCounter int
+	fetchCounter uint32
 }
 
 // NewProxyServer creates and initializes a new proxy server using provided gateway URL and block cache
@@ -91,6 +91,8 @@ func parseURL(url *url.URL) (block BlockID, txs string, err error) {
 // Example call: curl https://cloudflare-eth.com --data '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["0xb34f16", true],"id":1}'
 func (ps *ProxyServer) fetchBlock(blockID BlockID) (string, error) {
 	ps.fetchCounter++
+
+	// TODO: Move this code to a new function with BlockID receiver
 	blockIDString := "latest"
 	if blockID != "latest" {
 		blockInt, _ := strconv.Atoi(string(blockID))

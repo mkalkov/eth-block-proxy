@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-// BlockCache stores blocks in a map ordered by BlockID
+// BlockCache stores blocks in a map ordered by BlockID in the LRU-style
 type BlockCache struct {
 	mu        sync.Mutex
 	entries   blockByNumberMap
