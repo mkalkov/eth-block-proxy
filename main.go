@@ -4,26 +4,24 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
+
+	"github.com/mkalkov/eth-block-proxy/ethproxy"
 )
 
 const defaultEthereumGateway = "https://cloudflare-eth.com/"
 const defaultProxyPort = 8000
 const defaultCacheCapacity = 10
 
-// BlockID is either a natural number or a string like "latest"
-type BlockID string
-
-var logger = log.New(os.Stderr, "", log.Ldate|log.Ltime|log.Lmicroseconds)
-
 func main() {
-	// TODO: Received configuration through flags
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 
-	logger.Println("Ready to proxy calls to", defaultEthereumGateway)
+	// TODO: Receive configuration through flags
 
-	cache := NewBlockCache(defaultCacheCapacity)
+	cache := ethproxy.NewBlockCache(defaultCacheCapacity)
 
 	// TODO: Configure timeouts
-	proxyServer := NewProxyServer(defaultEthereumGateway, cache)
+	proxyServer := ethproxy.NewProxyServer(defaultEthereumGateway, cache)
+
+	log.Println("Ready to proxy calls to", defaultEthereumGateway)
 	http.ListenAndServe(fmt.Sprintf(":%d", defaultProxyPort), proxyServer)
 }

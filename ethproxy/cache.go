@@ -1,11 +1,15 @@
-package main
+package ethproxy
 
 import (
 	"errors"
+	"log"
 	"math"
 	"strconv"
 	"sync"
 )
+
+// BlockID is either a natural number or a string like "latest"
+type BlockID string
 
 // BlockCache stores blocks in a map ordered by BlockID in the LRU-style
 type BlockCache struct {
@@ -50,11 +54,11 @@ func (cache *BlockCache) PutOrUpdate(blockID BlockID, block string) {
 	defer cache.mu.Unlock()
 	cache.callCount++
 	if blockEntry, ok := cache.entries[blockID]; ok {
-		logger.Println("Block", blockID, "is already cached")
+		log.Println("Block", blockID, "is already cached")
 		blockEntry.lastUsed = cache.callCount
 	} else {
 		cache.expungeOldEntries()
-		logger.Println("Block", blockID, "will be cached")
+		log.Println("Block", blockID, "will be cached")
 		cache.entries[blockID] = &struct {
 			block    string
 			lastUsed uint32
@@ -75,7 +79,7 @@ func (cache *BlockCache) expungeOldEntries() {
 				lastUsed = v.lastUsed
 			}
 		}
-		logger.Println("Removing", blockID, "from cache")
+		log.Println("Removing", blockID, "from cache")
 		delete(cache.entries, blockID)
 	}
 }

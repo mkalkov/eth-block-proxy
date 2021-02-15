@@ -1,9 +1,10 @@
-package main
+package ethproxy
 
 import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -29,30 +30,30 @@ func NewProxyServer(gatewayURL string, blockCache *BlockCache) *ProxyServer {
 }
 
 func (ps *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	logger.Println()
-	logger.Println("Serving a request for", r.URL.Path)
+	log.Println()
+	log.Println("Serving a request for", r.URL.Path)
 
 	blockID, _, err := parseURL(r.URL)
 	if err != nil {
-		logger.Println(err)
+		log.Println(err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	logger.Println("Looking up block", blockID, "in cache")
+	log.Println("Looking up block", blockID, "in cache")
 	block, err := ps.cache.Get(blockID)
 	if err != nil {
-		logger.Println(err)
+		log.Println(err)
 		block, err = ps.fetchBlock(blockID)
 		if err != nil {
-			logger.Println(err)
+			log.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		if ShallCache(blockID) {
 			ps.cache.PutOrUpdate(blockID, block)
 		} else {
-			logger.Println("Block", blockID, "will not be cached")
+			log.Println("Block", blockID, "will not be cached")
 		}
 	}
 
@@ -60,10 +61,10 @@ func (ps *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", applicationJSON)
 	written, err := w.Write([]byte(block))
 	if err != nil {
-		logger.Println("Error replying to client")
+		log.Println("Error replying to client")
 		return
 	}
-	logger.Println("Sent", written, "bytes to client")
+	log.Println("Sent", written, "bytes to client")
 
 	// TODO: parse block X in order to return only transaction Y by its index or its hash
 }
@@ -99,7 +100,7 @@ func (ps *ProxyServer) fetchBlock(blockID BlockID) (string, error) {
 		blockIDString = fmt.Sprintf("%#x", blockInt)
 	}
 	rpcString := fmt.Sprintf(`{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["%s", true],"id":%d}`, blockIDString, ps.fetchCounter)
-	logger.Println("Performing JSON-RPC:", rpcString)
+	log.Println("Performing JSON-RPC:", rpcString)
 
 	// TODO: Configure timeouts
 	resp, err := http.Post(ps.gateway, applicationJSON, strings.NewReader(rpcString))
@@ -117,7 +118,7 @@ func (ps *ProxyServer) fetchBlock(blockID BlockID) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	logger.Println("Fetched", len(fetchedBlock), "bytes of", blockID, "block")
+	log.Println("Fetched", len(fetchedBlock), "bytes of", blockID, "block")
 
 	return string(fetchedBlock), err
 }
