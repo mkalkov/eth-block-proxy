@@ -42,6 +42,7 @@ func (ps *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	log.Println("Looking up block", blockID, "in cache")
 	block, err := ps.cache.Get(blockID)
+	// use other return mechanism than err
 	if err != nil {
 		log.Println(err)
 		block, err = ps.fetchBlock(blockID)
@@ -70,7 +71,7 @@ func (ps *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // Expect URLs like /block/X/txs/Y
-func parseURL(url *url.URL) (block BlockID, txs string, err error) {
+func parseURL(url *url.URL) (BlockID, string, error) {
 
 	path := strings.Split(url.Path, "/")
 	if len(path) != 5 || path[1] != "block" || path[2] == "" || path[3] != "txs" || path[4] == "" {
@@ -78,7 +79,7 @@ func parseURL(url *url.URL) (block BlockID, txs string, err error) {
 	}
 
 	blockPattern := path[2]
-	if block != "latest" {
+	if blockPattern != "latest" {
 		blockNumber, err := strconv.Atoi(path[2])
 		if err != nil || blockNumber < 0 {
 			return "", "", errors.New("Invalid block number: " + path[2])
@@ -105,7 +106,7 @@ func (ps *ProxyServer) fetchBlock(blockID BlockID) (string, error) {
 	// TODO: Configure timeouts
 	resp, err := http.Post(ps.gateway, applicationJSON, strings.NewReader(rpcString))
 	if err != nil {
-		resp.Body.Close()
+		resp.Body.Close() // use defer
 		return "", err
 	}
 
